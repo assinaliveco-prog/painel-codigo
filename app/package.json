@@ -1,0 +1,13 @@
+{
+  "name": "painel-codigo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Painel que recebe e exibe codigos de login (2FA) encaminhados do Gmail via Google Apps Script.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

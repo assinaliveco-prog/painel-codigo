@@ -1,0 +1,8 @@
+# Caddy pega o certificado HTTPS automatico (Let's Encrypt) para o seu dominio.
+# Requisitos: o registro DNS (A) do dominio precisa apontar pro IP da VPS,
+# e as portas 80 e 443 da VPS precisam estar abertas.
+
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy app:8080
+}

@@ -1,0 +1,7 @@
+.env
+node_modules/
+*.log
+data/
+QUICKSTART.md
+_preview_dev.js
+.claude/
