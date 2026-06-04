@@ -15,7 +15,7 @@
  */
 
 // ============== CONFIG (preencha) ==============
-var INGEST_URL = 'https://codigos.assinaia.com/ingest'; // dominio do painel + /ingest
+var INGEST_URL = 'https://agentflop-painel.u0pugl.easypanel.host/ingest'; // /ingest do painel
 var INGEST_TOKEN = 'COLE_AQUI_O_MESMO_INGEST_TOKEN_DO_ENV'; // igual ao INGEST_TOKEN do .env
 // ===============================================
 
