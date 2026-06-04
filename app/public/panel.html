@@ -109,6 +109,18 @@
     70%, 100% { box-shadow: 0 0 0 6px transparent; opacity: 1; }
   }
 
+  .note {
+    margin-bottom: 16px;
+    padding: 11px 14px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .note strong { color: var(--ink); font-weight: 600; }
+
   /* cartao do codigo */
   .codecard {
     position: relative;
@@ -236,6 +248,10 @@
       <span id="liveText">conectando</span>
     </div>
   </header>
+
+  <section class="note">
+    📧 Ao pedir o código, escolha enviar para <strong>assinaliveco@gmail.com</strong>
+  </section>
 
   <main>
     <section class="codecard" id="card" data-state="empty">
