@@ -1,124 +1,114 @@
 # Painel de Codigo
 
 Painel web que mostra, em tempo real, o **codigo de login (2FA)** de uma conta
-Microsoft compartilhada com o time. O codigo chega no Gmail, um script do Google
-le e envia pro painel, e a galera abre um link pra ver o codigo.
+Microsoft compartilhada com o time. Um leitor le a caixa de e-mail e joga o
+codigo no painel; a galera abre um link e ve o codigo.
 
-**So codigo de LOGIN passa.** Email de troca/recuperacao de senha e bloqueado e
-NAO aparece no painel.
+**So codigo de LOGIN passa.** E-mail de troca/recuperacao de senha e bloqueado.
 
 ```
-Microsoft manda codigo  ->  Gmail recebe  ->  Apps Script le  ->  Painel (VPS)  ->  Galera ve
+Microsoft envia codigo  ->  caixa de e-mail  ->  leitor  ->  Painel (VPS)  ->  Galera ve
 ```
 
----
+## Como o leitor le a caixa
 
-## Peças
+Duas opcoes (escolha uma):
 
-| Peça | Onde roda | O que faz |
-|------|-----------|-----------|
-| **Leitor** (`apps-script/Code.gs`) | Dentro do seu Gmail | A cada 1 min acha o codigo de login, ignora reset de senha, envia pro painel |
-| **App** (`app/server.js`) | VPS (Docker) | Recebe o codigo e serve o painel num link secreto |
-| **Caddy** | VPS (Docker) | HTTPS automatico no seu dominio |
+- **A) Microsoft Graph (recomendado p/ Hotmail/Outlook):** o proprio painel le a
+  conta Microsoft direto, via OAuth. Sem reencaminho, sem Gmail. Roda na VPS
+  (PC desligado ok). E o caminho certo porque a Microsoft desligou IMAP/senha
+  basica em contas pessoais.
+- **B) Google Apps Script (alternativa):** se o codigo chega/ e reencaminhado pra
+  um **Gmail**, um script no Gmail le e faz `POST /ingest`. Ver `apps-script/Code.gs`.
+
+Ambos terminam chamando o mesmo `ingest()` no servidor, que extrai o codigo e
+filtra os e-mails de senha.
 
 ---
 
 ## Pre-requisitos
 
-- Uma **VPS Ubuntu/Debian** com **Docker** e **docker compose** instalados.
-- Um **dominio** (ou subdominio) com registro **DNS tipo A** apontando pro **IP da VPS**.
-  Ex: `codigos.seudominio.com  ->  203.0.113.10`
-- Portas **80** e **443** abertas na VPS (firewall / security group).
-- O **Gmail** ja configurado como email da conta Microsoft que recebe o codigo.
+- VPS (Ubuntu) com Docker — ou EasyPanel (recomendado; faz HTTPS sozinho).
+- Um dominio/subdominio apontando pra VPS (ex: `codigos.seudominio.com`).
+- A conta Microsoft que recebe o codigo (ex: `xxxx@hotmail.com`).
 
-Instalar Docker na VPS (se ainda nao tiver):
+---
+
+## Parte 1 — Subir o app
+
+### Com EasyPanel (recomendado)
+1. Coloque este projeto num repo Git (pode ser privado).
+2. EasyPanel -> **Create -> App** -> Source: seu repo -> Build: **Dockerfile**.
+3. **Environment:** copie do `.env.example` (DOMAIN, PANEL_SLUG, INGEST_TOKEN,
+   ACCOUNT_LABEL, PORT=8080, e os `MS_*` da Parte 2).
+4. **Volume:** monte em `/data` (historico de codigos).
+5. **Domains:** adicione seu dominio na porta `8080` (HTTPS automatico).
+6. Teste: `https://SEU_DOMINIO/health` -> `{"ok":true}`.
+
+### Com Docker Compose (sem EasyPanel)
+`cp .env.example .env`, preencha, e `docker compose up -d --build`
+(usa o Caddy do projeto pra HTTPS). Nesse caso o painel fica em
+`https://SEU_DOMINIO/p/<PANEL_SLUG>`.
+
+---
+
+## Parte 2 — Leitor via Microsoft Graph (le o Hotmail direto)
+
+### 2.1 Registrar um app no Azure (uma vez, gratis)
+1. Acesse **https://entra.microsoft.com** (ou portal.azure.com) logado **com a
+   conta que recebe o codigo**.
+2. **App registrations -> New registration**.
+   - Nome: `painel-leitor`
+   - Supported account types: **Personal Microsoft accounts only**
+   - Register.
+3. Copie o **Application (client) ID**.
+4. **Authentication -> Advanced settings -> Allow public client flows = Yes** -> Save.
+5. **API permissions -> Add -> Microsoft Graph -> Delegated**: adicione
+   **Mail.Read** e **offline_access**. (Conta pessoal nao precisa de admin consent.)
+
+### 2.2 Pegar o refresh token (uma vez)
+Na VPS ou no PC (Node 18+), dentro da pasta do projeto:
 
 ```bash
-curl -fsSL https://get.docker.com | sh
+MS_CLIENT_ID=<seu_client_id> node app/get-token.js
 ```
 
----
+Abra o link mostrado, digite o codigo, faca login na conta do codigo e aceite.
+No fim ele imprime `MS_CLIENT_ID` e `MS_REFRESH_TOKEN`.
 
-## Parte 1 — Subir o painel na VPS
+### 2.3 Configurar e religar
+Coloque no Environment (EasyPanel) ou no `.env`:
 
-1. **Mande a pasta `painel-codigo` pra VPS** (via `scp`, `git` ou o painel do provedor).
+```
+MS_CLIENT_ID=...
+MS_REFRESH_TOKEN=...
+```
 
-   Pelo Windows (PowerShell), por exemplo:
-   ```powershell
-   scp -r C:\Users\jvcom\painel-codigo  usuario@IP_DA_VPS:~/
-   ```
+Redeploy. No log deve aparecer `[poller] leitor Graph LIGADO`. Pronto: o painel
+le a caixa a cada 1 minuto.
 
-2. **Na VPS, entre na pasta e crie o `.env`:**
-   ```bash
-   cd painel-codigo
-   cp .env.example .env
-   ```
-
-3. **Gere os segredos** e cole no `.env`:
-   ```bash
-   echo "PANEL_SLUG=$(openssl rand -hex 16)"
-   echo "INGEST_TOKEN=$(openssl rand -hex 24)"
-   ```
-   Edite o `.env` (`nano .env`) e preencha:
-   - `DOMAIN` = seu dominio (ex: `codigos.seudominio.com`)
-   - `PANEL_SLUG` = o valor gerado acima
-   - `INGEST_TOKEN` = o valor gerado acima
-   - `ACCOUNT_LABEL` = nome que aparece no painel
-
-4. **Suba:**
-   ```bash
-   docker compose up -d --build
-   ```
-
-5. **Teste:**
-   - `https://SEU_DOMINIO/health` deve responder `{"ok":true}`
-   - O painel fica em: `https://SEU_DOMINIO/p/SEU_PANEL_SLUG`
-     (esse e o link que voce passa pra galera — guarde com cuidado)
-
-   Ver logs: `docker compose logs -f app`
-
-> Na primeira vez o Caddy leva ~30s pra emitir o certificado HTTPS. Se der erro
-> de certificado, confira que o DNS ja aponta pro IP e que as portas 80/443 estao abertas.
-
----
-
-## Parte 2 — Configurar o leitor (Google Apps Script)
-
-1. Abra **https://script.google.com** -> **Novo projeto**.
-2. Apague o conteudo e **cole todo o `apps-script/Code.gs`**.
-3. No topo do arquivo, preencha:
-   - `INGEST_URL` = `https://SEU_DOMINIO/ingest`
-   - `INGEST_TOKEN` = **o mesmo** `INGEST_TOKEN` do `.env`
-4. Salve (Ctrl+S).
-5. Rode a funcao **`instalarGatilho`** uma vez. O Google vai pedir **autorizacao**
-   pra acessar seu Gmail -> aprove (a tela "app nao verificado" e normal por ser
-   seu proprio script: avancado -> continuar).
-6. Pra testar agora, rode **`verificarCodigos`** manualmente e veja os logs.
-
-Pronto. A partir daqui o script roda sozinho a cada 1 minuto.
+> **Alternativa (Apps Script / Gmail):** deixe os `MS_*` vazios e siga o
+> `apps-script/Code.gs` (cole no script.google.com, ajuste `BUSCA` e
+> `INGEST_TOKEN`, rode `instalarGatilho`). Util se o codigo chega num Gmail.
 
 ---
 
 ## Parte 3 — Teste de ponta a ponta
 
-1. Tente **entrar na conta Microsoft** e peça o **codigo por email**.
-2. Em ate ~1 minuto o codigo aparece no **painel**.
-3. Faça um teste de **"esqueci a senha"** e confirme que esse codigo **NAO** aparece
-   no painel (foi bloqueado).
+1. Faca login na conta Microsoft e peca "codigo por e-mail".
+2. Em ~1 min o codigo aparece em `https://SEU_DOMINIO/p/<PANEL_SLUG>`.
+3. Faca "esqueci a senha" e confirme que esse codigo **NAO** aparece (filtrado).
 
 ---
 
 ## Seguranca e operacao
 
-- **O link do painel = acesso ao codigo.** Quem tem o link pega o codigo e entra na
-  conta. Trate o link como senha: nao jogue em grupo grande, nao poste print.
-- **Trocar o link (revogar acesso):** gere um novo `PANEL_SLUG` no `.env` e rode
-  `docker compose up -d`. O link antigo para de funcionar na hora.
-- **Atualizar a conta na Microsoft:** o codigo precisa cair no Gmail configurado.
-  Mantenha esse Gmail como metodo de "enviar codigo por email" da conta.
-- **Logs do leitor:** no Apps Script, menu **Execucoes**.
-- **Ajustar o filtro de senha:** edite a lista `BLOQUEIO` em `Code.gs`.
-- **Outro remetente / idioma:** ajuste `REMETENTE` e o regex `extrairCodigo_` em `Code.gs`.
+- **O link do painel = acesso ao codigo.** Trate como senha. Nao poste em grupo grande.
+- **Revogar o link:** troque `PANEL_SLUG` e redeploy. O link antigo morre na hora.
+- **Revogar o leitor:** apague o app no Azure (ou tire `MS_REFRESH_TOKEN`).
+- **Logs:** EasyPanel -> Logs (procure `[poller]`).
+- **Ajustar filtro de senha / remetente:** `RESET_TERMS` no `app/server.js`,
+  `MS_SENDER` no `.env`.
 
 ---
 
@@ -127,13 +117,14 @@ Pronto. A partir daqui o script roda sozinho a cada 1 minuto.
 ```
 painel-codigo/
 ├─ app/
-│  ├─ server.js          # servidor HTTP (Node puro, sem deps)
-│  ├─ package.json
+│  ├─ server.js          # servidor HTTP + ingest() (extrai codigo, filtra senha)
+│  ├─ poller.js          # leitor do Hotmail via Microsoft Graph
+│  ├─ get-token.js       # pega o refresh token (device code), 1 vez
+│  ├─ lib/msgraph.js     # cliente Graph (sem deps)
 │  └─ public/panel.html  # a pagina do painel
-├─ apps-script/Code.gs   # leitor do Gmail (cola no script.google.com)
+├─ apps-script/Code.gs   # leitor alternativo (Gmail)
 ├─ Dockerfile
-├─ docker-compose.yml
-├─ Caddyfile             # HTTPS automatico
-├─ .env.example          # copie pra .env e preencha
-└─ README.md
+├─ docker-compose.yml    # so se NAO usar EasyPanel
+├─ Caddyfile             # so se NAO usar EasyPanel
+└─ .env.example
 ```
