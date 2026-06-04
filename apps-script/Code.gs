@@ -58,7 +58,14 @@ function processarMensagem_(msg) {
   var texto = subject + '\n' + body;
   var low = texto.toLowerCase();
 
-  // FILTRO: so codigo de LOGIN. Bloqueia troca de senha.
+  // SO processa e-mails que SAO codigo (pelo assunto). Ignora notificacoes
+  // ("nova entrada detectada", "novo aplicativo conectado", "info de seguranca excluida"...).
+  if (!/c[oó]digo de seguran[cç]a|security code|c[oó]digo de uso [uú]nico|single-use code|c[oó]digo de verifica|verification code/i.test(subject)) {
+    Logger.log('ignorado (assunto nao e codigo): ' + subject);
+    return;
+  }
+
+  // FILTRO: bloqueia troca/recuperacao de senha.
   for (var b = 0; b < BLOQUEIO.length; b++) {
     if (low.indexOf(BLOQUEIO[b]) !== -1) {
       Logger.log('ignorado (parece senha): ' + subject);
